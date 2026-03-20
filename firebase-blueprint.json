@@ -1,0 +1,45 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and permissions",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "username": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "moderator", "user"] },
+        "isBanned": { "type": "boolean" },
+        "isPremium": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "username", "role", "isBanned", "isPremium"]
+    },
+    "Obfuscation": {
+      "title": "Obfuscation",
+      "description": "Record of a code obfuscation",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "sourceCode": { "type": "string" },
+        "obfuscatedCode": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "name": { "type": "string" },
+        "language": { "type": "string" },
+        "level": { "type": "string" }
+      },
+      "required": ["id", "userId", "sourceCode", "obfuscatedCode", "timestamp", "name"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/obfuscations/{obfuscationId}": {
+      "schema": "Obfuscation",
+      "description": "Obfuscation history"
+    }
+  }
+}
