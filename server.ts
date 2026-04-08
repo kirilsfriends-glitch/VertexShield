@@ -79,7 +79,8 @@ async function initFirebase() {
       }
 
       if (getApps().length === 0) {
-        throw new Error("No Firebase credentials or Project ID found for initialization.");
+        console.error("No Firebase credentials or Project ID found for initialization.");
+        return null;
       }
     }
 
@@ -94,49 +95,16 @@ async function initFirebase() {
       ? getFirestore(firebaseApp, dbId)
       : getFirestore(firebaseApp);
 
-    // Test connection to verify permissions
-    try {
-      console.log(`Testing connection to Firestore database: ${dbId || "(default)"}...`);
-      // We use a simple get() to test connectivity.
-      // If this fails with PERMISSION_DENIED, we try to re-initialize or fallback.
-      await firestoreDb.collection("pastes").limit(1).get();
-      db = firestoreDb;
-      console.log(`Firestore Admin successfully connected to ${dbId || "(default)"}`);
-    } catch (error: any) {
-      console.error(`Permission denied or error connecting to database ${dbId || "(default)"}:`, error.message);
-      
-      // If we got PERMISSION_DENIED, it might be an IAM issue with the specific database ID.
-      // We try to fallback to the default database if possible.
-      if (dbId && dbId !== "(default)") {
-        console.warn("Attempting fallback to (default) database...");
-        try {
-          const defaultDb = getFirestore(firebaseApp);
-          await defaultDb.collection("pastes").limit(1).get();
-          db = defaultDb;
-          console.log("Firestore Admin successfully connected to (default) database as fallback.");
-        } catch (fallbackError: any) {
-          console.error("Fallback to (default) database also failed:", fallbackError.message);
-          
-          // If fallback fails, we try one last thing: initialize with NO config (picks up environment defaults)
-          console.warn("Attempting initialization with environment defaults...");
-          try {
-            if (getApps().length > 0) {
-              // We can't easily re-init the same app name, but we can try to use a different one
-              const fallbackApp = initializeApp({ projectId: firebaseConfig?.projectId }, "fallback");
-              const fallbackDb = getFirestore(fallbackApp);
-              await fallbackDb.collection("pastes").limit(1).get();
-              db = fallbackDb;
-              console.log("Firestore Admin successfully connected using environment defaults.");
-            }
-          } catch (envError: any) {
-            console.error("Environment default initialization also failed:", envError.message);
-            throw error; // Re-throw original error
-          }
-        }
-      } else {
-        throw error;
-      }
-    }
+    // Set db immediately to avoid blocking server startup
+    db = firestoreDb;
+    
+    // Test connection asynchronously
+    firestoreDb.collection("pastes").limit(1).get()
+      .then(() => console.log(`Firestore Admin successfully connected to ${dbId || "(default)"}`))
+      .catch((error: any) => {
+        console.warn(`Initial Firestore connection test failed for ${dbId || "(default)"}:`, error.message);
+        // We don't throw here to avoid crashing the server
+      });
     
     return db;
   } catch (error) {

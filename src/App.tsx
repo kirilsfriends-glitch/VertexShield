@@ -743,8 +743,11 @@ export default function App() {
     };
     testConnection();
     
-    // Simulate pleasant loading
-    const timer = setTimeout(() => setIsReady(true), 1000);
+    // Simulate pleasant loading and ensure we don't get stuck
+    const timer = setTimeout(() => {
+      setIsReady(true);
+      setIsAuthReady(true); // Fallback if auth listener hangs
+    }, 2000);
     
     return () => {
       unsubscribe();
