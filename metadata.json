@@ -1,0 +1,5 @@
+{
+  "name": "VertexShield - Advanced Pastebin with Device Verification",
+  "description": "VertexShield is a secure pastebin-like application with IP and device verification, API access, and code obfuscation features.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "Paste": {
+      "title": "Paste",
+      "description": "A snippet of code or text shared by a user.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Title of the paste" },
+        "content": { "type": "string", "description": "Original content of the paste" },
+        "obfuscatedContent": { "type": "string", "description": "Obfuscated version of the content" },
+        "creatorId": { "type": "string", "description": "UID of the creator" },
+        "creatorIp": { "type": "string", "description": "IP address of the creator at creation time" },
+        "creatorFingerprint": { "type": "string", "description": "Device fingerprint of the creator" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp" },
+        "isPublic": { "type": "boolean", "description": "Whether the paste is publicly visible" },
+        "language": { "type": "string", "description": "Programming language for syntax highlighting" }
+      },
+      "required": ["content", "creatorId", "creatorIp", "creatorFingerprint", "createdAt"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "format": "email", "description": "User's email address" },
+        "displayName": { "type": "string", "description": "User's display name" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "User's registration timestamp" }
+      },
+      "required": ["email", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/pastes/{pasteId}": {
+      "schema": "Paste",
+      "description": "Collection of all pastes."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Collection of user profiles."
+    }
+  }
+}

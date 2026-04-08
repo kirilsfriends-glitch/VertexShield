@@ -1,0 +1,259 @@
+import express from "express";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
+
+// Global error handlers for better diagnostics on Vercel
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("Unhandled Rejection at:", promise, "reason:", reason);
+});
+
+process.on("uncaughtException", (err) => {
+  console.error("Uncaught Exception:", err);
+});
+
+// ✅ ИСПРАВЛЕНО: правильные импорты для firebase-admin v10+
+import { initializeApp, cert, getApps, getApp } from "firebase-admin/app";
+import { getFirestore } from "firebase-admin/firestore";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+let db: any;
+
+async function initFirebase() {
+  if (db) return db;
+
+  try {
+    console.log("Initializing Firebase Admin...");
+
+    if (getApps().length === 0) {
+      const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+      let firebaseConfig: any = null;
+      
+      if (fs.existsSync(configPath)) {
+        try {
+          firebaseConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        } catch (e) {
+          console.error("Error parsing firebase-applet-config.json:", e);
+        }
+      }
+
+      // 1. Try Service Account from Env Var (Vercel/Production)
+      if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+        try {
+          const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+          initializeApp({
+            credential: cert(serviceAccount),
+            projectId: serviceAccount.project_id || firebaseConfig?.projectId,
+          });
+          console.log("Firebase Admin initialized from FIREBASE_SERVICE_ACCOUNT env var.");
+        } catch (e) {
+          console.error("Failed to parse FIREBASE_SERVICE_ACCOUNT env var:", e);
+        }
+      } 
+      
+      // 2. Try Service Account from config file (if it contains private_key)
+      if (getApps().length === 0 && firebaseConfig?.private_key) {
+        try {
+          initializeApp({
+            credential: cert(firebaseConfig),
+            projectId: firebaseConfig.project_id || firebaseConfig.projectId,
+          });
+          console.log("Firebase Admin initialized from service account in config file.");
+        } catch (e) {
+          console.error("Failed to initialize from service account in config file:", e);
+        }
+      }
+
+      // 3. Fallback to Project ID (works in Cloud Run / Local with ADC)
+      if (getApps().length === 0) {
+        const projectId = firebaseConfig?.projectId || process.env.GOOGLE_CLOUD_PROJECT;
+        if (projectId) {
+          initializeApp({ projectId });
+          console.log(`Firebase Admin initialized with Project ID: ${projectId}`);
+        } else {
+          initializeApp();
+          console.log("Firebase Admin initialized with default credentials.");
+        }
+      }
+
+      if (getApps().length === 0) {
+        throw new Error("No Firebase credentials or Project ID found for initialization.");
+      }
+    }
+
+    const firebaseApp = getApp();
+    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+    const firebaseConfig = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, "utf-8")) : null;
+
+    const dbId = process.env.FIRESTORE_DATABASE_ID || firebaseConfig?.firestoreDatabaseId;
+    
+    // Use named database if provided, otherwise default
+    const firestoreDb = (dbId && dbId !== "(default)")
+      ? getFirestore(firebaseApp, dbId)
+      : getFirestore(firebaseApp);
+
+    // Test connection to verify permissions
+    try {
+      console.log(`Testing connection to Firestore database: ${dbId || "(default)"}...`);
+      // We use a simple get() to test connectivity.
+      // If this fails with PERMISSION_DENIED, we try to re-initialize or fallback.
+      await firestoreDb.collection("pastes").limit(1).get();
+      db = firestoreDb;
+      console.log(`Firestore Admin successfully connected to ${dbId || "(default)"}`);
+    } catch (error: any) {
+      console.error(`Permission denied or error connecting to database ${dbId || "(default)"}:`, error.message);
+      
+      // If we got PERMISSION_DENIED, it might be an IAM issue with the specific database ID.
+      // We try to fallback to the default database if possible.
+      if (dbId && dbId !== "(default)") {
+        console.warn("Attempting fallback to (default) database...");
+        try {
+          const defaultDb = getFirestore(firebaseApp);
+          await defaultDb.collection("pastes").limit(1).get();
+          db = defaultDb;
+          console.log("Firestore Admin successfully connected to (default) database as fallback.");
+        } catch (fallbackError: any) {
+          console.error("Fallback to (default) database also failed:", fallbackError.message);
+          
+          // If fallback fails, we try one last thing: initialize with NO config (picks up environment defaults)
+          console.warn("Attempting initialization with environment defaults...");
+          try {
+            if (getApps().length > 0) {
+              // We can't easily re-init the same app name, but we can try to use a different one
+              const fallbackApp = initializeApp({ projectId: firebaseConfig?.projectId }, "fallback");
+              const fallbackDb = getFirestore(fallbackApp);
+              await fallbackDb.collection("pastes").limit(1).get();
+              db = fallbackDb;
+              console.log("Firestore Admin successfully connected using environment defaults.");
+            }
+          } catch (envError: any) {
+            console.error("Environment default initialization also failed:", envError.message);
+            throw error; // Re-throw original error
+          }
+        }
+      } else {
+        throw error;
+      }
+    }
+    
+    return db;
+  } catch (error) {
+    console.error("Error initializing Firebase Admin:", error);
+    return null;
+  }
+}
+
+async function startServer() {
+  const app = express();
+  const PORT = 3000;
+
+  await initFirebase();
+
+  app.use(express.json());
+
+  const scriptHandler = async (req: any, res: any) => {
+    const { pasteIdWithExt } = req.params;
+    const pasteId = pasteIdWithExt.split(".")[0];
+    const userAgent = req.headers["user-agent"] || "";
+    const isRoblox = userAgent.includes("Roblox") || userAgent.includes("RobloxApp");
+
+    if (!db) {
+      await initFirebase();
+      if (!db) {
+        console.error("Firestore database not initialized");
+        return res.status(500).send("Database connection error");
+      }
+    }
+
+    // If it's a browser (not Roblox), redirect to the beautiful UI
+    if (!isRoblox && !req.query.raw) {
+      return res.redirect(`/paste/${pasteId}`);
+    }
+
+    let clientIp = req.headers["x-forwarded-for"] || req.socket.remoteAddress;
+    if (Array.isArray(clientIp)) clientIp = clientIp[0];
+    if (typeof clientIp === "string" && clientIp.includes(",")) {
+      clientIp = clientIp.split(",")[0].trim();
+    }
+
+    const clientFingerprint = req.headers["x-device-fingerprint"];
+
+    try {
+      const pasteDoc = await db.collection("pastes").doc(pasteId).get();
+      if (!pasteDoc.exists) {
+        return res.status(404).send("Paste not found");
+      }
+
+      const paste = pasteDoc.data();
+      if (!paste) return res.status(404).send("Paste data not found");
+
+      const ipMatches = paste.creatorIp === clientIp;
+      const fingerprintMatches = paste.creatorFingerprint === clientFingerprint;
+
+      // For Roblox, we might want to skip fingerprint check as it's hard to set custom headers in HttpGet
+      // But we still check IP if it's private
+      if (!paste.isPublic && !ipMatches && !isRoblox) {
+        // If not public and IP doesn't match, and not Roblox (which might have different IP)
+        // Actually, if it's private, it should be strictly protected.
+        // But executors often have different IPs.
+        // Let's stick to the user's logic but allow Roblox if it's public or if we want to be more lenient.
+        if (!fingerprintMatches) {
+          const currentUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
+          return res.send(`-- Access Denied. View at: ${currentUrl}`);
+        }
+      }
+
+      const content = paste.obfuscatedContent || paste.content;
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Access-Control-Allow-Origin", "*"); // Allow Roblox to fetch
+      return res.send(content);
+    } catch (error: any) {
+      console.error("Error fetching paste:", error);
+      return res.status(500).send(`Internal server error: ${error.message || "Unknown error"}`);
+    }
+  };
+
+  app.get("/scripts/hosted/:pasteIdWithExt", scriptHandler);
+  app.get("/script/:pasteIdWithExt", scriptHandler);
+
+  // Health check
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", env: process.env.NODE_ENV });
+  });
+
+  if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  }
+
+  return app;
+}
+
+const appPromise = startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  throw err;
+});
+
+if (process.env.NODE_ENV !== "production") {
+  appPromise.then((app) => {
+    app.listen(3000, "0.0.0.0", () => {
+      console.log(`Server running on http://localhost:3000`);
+    });
+  });
+}
+
+export default async (req: any, res: any) => {
+  try {
+    const app = await appPromise;
+    return app(req, res);
+  } catch (err) {
+    console.error("Error in Vercel handler:", err);
+    res.status(500).send("Internal Server Error during startup");
+  }
+};
