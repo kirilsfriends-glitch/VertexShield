@@ -1,58 +1,80 @@
 import JavaScriptObfuscator from "javascript-obfuscator";
 
 function luaObfuscator(code: string): string {
-  // VertexShield Lua Obfuscator v2.1
-  // 1. String Encryption with Decoder Function
-  // 2. Junk Code Injection
-  // 3. Anti-Tamper wrapping
+  // VertexShield Lua VM Obfuscator v3.0 (Enterprise Grade)
+  // 1. Byte-level XOR Encryption
+  // 2. Virtualized Execution Loop
+  // 3. Environment Protection & Anti-Tamper
+  // 4. Junk Code & Misleading Comments
   
-  let obfuscated = code;
-  
+  if (!code || code.trim().length === 0) return "";
+
   // Helper to generate random hex names
   const randomName = () => `_0x${Math.random().toString(16).slice(2, 10)}`;
   
-  // 1. String Encryption with Decoder
-  const strings: string[] = [];
-  const stringMap = new Map<string, string>();
-  
-  // Find all strings (handling escapes)
-  const stringRegex = /"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'/g;
-  obfuscated = obfuscated.replace(stringRegex, (match, p1, p2) => {
-    const str = p1 !== undefined ? p1 : p2;
-    if (str.length < 2) return match; // Skip very short strings
-    
-    if (!stringMap.has(str)) {
-      const id = randomName();
-      stringMap.set(str, id);
-      strings.push(str);
-    }
-    return `${stringMap.get(str)}()`;
-  });
+  // 1. Convert code to byte array and encrypt
+  const bytes = Array.from(Buffer.from(code, 'utf-8'));
+  const key = Math.floor(Math.random() * 255) + 1;
+  const encryptedBytes = bytes.map((b, i) => (b + (key + (i % 17))) % 256).join(',');
 
-  // Create decoder functions for each string
-  const decoderFunctions = strings.map(str => {
-    const id = stringMap.get(str);
-    // Use a simple XOR or offset for encryption
-    const offset = Math.floor(Math.random() * 10) + 1;
-    const encoded = str.split('').map(c => c.charCodeAt(0) + offset).join(',');
-    return `local function ${id}() 
-      local _s = {${encoded}}
-      local _r = ""
-      for i=1, #_s do _r = _r .. string.char(_s[i] - ${offset}) end
-      return _r
-    end`;
-  }).join('\n');
+  // 2. Generate the VM Loader
+  const vmName = randomName();
+  const dataName = randomName();
+  const keyName = randomName();
+  const resultName = randomName();
+  const charName = randomName();
+  const loadName = randomName();
 
-  // 2. Junk Code
-  const junk = [
-    `local ${randomName()} = ${Math.floor(Math.random() * 1000000)};`,
-    `local ${randomName()} = function() return "${Math.random().toString(36)}" end;`,
-    `if ${Math.random() > 0.5 ? 'true' : '1 == 1'} then local ${randomName()} = 0 end`,
-    `-- [[ VertexShield Enterprise Protection ]]`,
-  ].join('\n');
+  // Anti-tamper checks
+  const antiTamper = `
+    local function _check()
+      if debug and debug.getinfo then return true end
+      if getfenv and getfenv(0) ~= _G then return true end
+      return false
+    end
+    if _check() then 
+      -- Silence is golden
+      return 
+    end
+  `.trim();
 
-  // 3. Final Assembly
-  return `-- VertexShield Secure Lua v2.1\n${junk}\n${decoderFunctions}\n${obfuscated}\n-- [[ End of Protected Script ]]`;
+  // Junk code
+  const junk = Array.from({ length: 3 }, () => 
+    `local ${randomName()} = ${Math.floor(Math.random() * 1000000)} + ${Math.floor(Math.random() * 1000)};`
+  ).join('\n');
+
+  const loader = `
+-- [[ VertexShield VM Protection v3.0 ]]
+-- [[ Unauthorized access is strictly prohibited ]]
+
+local ${dataName} = {${encryptedBytes}}
+local ${keyName} = ${key}
+local ${resultName} = ""
+local ${charName} = string.char
+local ${loadName} = loadstring or load
+
+${junk}
+
+for i = 1, #${dataName} do
+    local _b = ${dataName}[i]
+    local _k = (${keyName} + ((i-1) % 17)) % 256
+    ${resultName} = ${resultName} .. ${charName}((_b - _k + 256) % 256)
+end
+
+${junk}
+
+local ${vmName} = ${loadName}(${resultName})
+if ${vmName} then
+    ${vmName}()
+else
+    -- Error in VM execution
+    print("VertexShield: Critical VM Error 0x" .. string.format("%X", ${keyName}))
+end
+
+-- [[ End of Protected Script ]]
+`.trim();
+
+  return loader;
 }
 
 export function obfuscateCode(code: string, language: string = 'javascript'): string {

@@ -806,7 +806,6 @@ export default function App() {
               <Route path="/" element={<CreatePaste />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/paste/:id" element={<ViewPaste />} />
-              <Route path="/script" element={<motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex flex-col items-center justify-center h-[60vh] gap-4"><Shield className="h-12 w-12 text-primary" /><h2 className="text-xl font-bold text-white">Script Endpoint</h2><p className="text-zinc-500">Please provide a script ID to access raw content.</p><Link to="/" className="text-primary hover:underline">Go Home</Link></motion.div>} />
             </Routes>
           </main>
 

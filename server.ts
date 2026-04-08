@@ -125,7 +125,13 @@ async function startServer() {
     const { pasteIdWithExt } = req.params;
     const pasteId = pasteIdWithExt.split(".")[0];
     const userAgent = req.headers["user-agent"] || "";
-    const isRoblox = userAgent.includes("Roblox") || userAgent.includes("RobloxApp");
+    const isRoblox = userAgent.includes("Roblox") || 
+                     userAgent.includes("RobloxApp") || 
+                     userAgent.includes("Synapse") || 
+                     userAgent.includes("Sentinel") || 
+                     userAgent.includes("Krnl") ||
+                     userAgent.includes("Fluxus") ||
+                     userAgent.includes("Electron");
 
     if (!db) {
       await initFirebase();
@@ -135,7 +141,18 @@ async function startServer() {
       }
     }
 
+    // Set CORS early for all script requests
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, x-device-fingerprint");
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+
     // If it's a browser (not Roblox), redirect to the beautiful UI
+    // Unless they explicitly asked for ?raw=true
     if (!isRoblox && !req.query.raw) {
       return res.redirect(`/paste/${pasteId}`);
     }
@@ -151,31 +168,23 @@ async function startServer() {
     try {
       const pasteDoc = await db.collection("pastes").doc(pasteId).get();
       if (!pasteDoc.exists) {
-        return res.status(404).send("Paste not found");
+        return res.status(404).send("-- VertexShield: Paste not found");
       }
 
       const paste = pasteDoc.data();
-      if (!paste) return res.status(404).send("Paste data not found");
+      if (!paste) return res.status(404).send("-- VertexShield: Paste data not found");
 
       const ipMatches = paste.creatorIp === clientIp;
       const fingerprintMatches = paste.creatorFingerprint === clientFingerprint;
 
-      // For Roblox, we might want to skip fingerprint check as it's hard to set custom headers in HttpGet
-      // But we still check IP if it's private
-      if (!paste.isPublic && !ipMatches && !isRoblox) {
-        // If not public and IP doesn't match, and not Roblox (which might have different IP)
-        // Actually, if it's private, it should be strictly protected.
-        // But executors often have different IPs.
-        // Let's stick to the user's logic but allow Roblox if it's public or if we want to be more lenient.
-        if (!fingerprintMatches) {
-          const currentUrl = `${req.protocol}://${req.get("host")}${req.originalUrl}`;
-          return res.send(`-- Access Denied. View at: ${currentUrl}`);
-        }
+      // For Roblox, we allow access if it's public OR if it's from a Roblox agent
+      // We are more lenient with Roblox to ensure scripts actually run
+      if (!paste.isPublic && !isRoblox && !ipMatches && !fingerprintMatches) {
+        const currentUrl = `${req.protocol}://${req.get("host")}/paste/${pasteId}`;
+        return res.send(`-- VertexShield: Access Denied. This is a private paste.\n-- View at: ${currentUrl}`);
       }
 
       const content = paste.obfuscatedContent || paste.content;
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.setHeader("Access-Control-Allow-Origin", "*"); // Allow Roblox to fetch
       return res.send(content);
     } catch (error: any) {
       console.error("Error fetching paste:", error);
@@ -183,7 +192,6 @@ async function startServer() {
     }
   };
 
-  app.get("/scripts/hosted/:pasteIdWithExt", scriptHandler);
   app.get("/script/:pasteIdWithExt", scriptHandler);
 
   // Health check
