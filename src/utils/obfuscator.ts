@@ -1,74 +1,77 @@
 import JavaScriptObfuscator from "javascript-obfuscator";
 
 function luaObfuscator(code: string): string {
-  // VertexShield Lua VM Obfuscator v3.0 (Enterprise Grade)
-  // 1. Byte-level XOR Encryption
-  // 2. Virtualized Execution Loop
-  // 3. Environment Protection & Anti-Tamper
-  // 4. Junk Code & Misleading Comments
+  // VertexShield Lua VM Obfuscator v3.1 (Enterprise Grade)
+  // 1. Byte-level Rolling Key Encryption
+  // 2. Virtualized Execution Loop with Internal Obfuscation
+  // 3. Environment Protection & Anti-Tamper (Active)
+  // 4. Unique Junk Code Generation
   
   if (!code || code.trim().length === 0) return "";
 
-  // Helper to generate random hex names
   const randomName = () => `_0x${Math.random().toString(16).slice(2, 10)}`;
   
-  // 1. Convert code to byte array and encrypt
-  const bytes = Array.from(Buffer.from(code, 'utf-8'));
+  // 1. Encryption logic
+  const encoder = new TextEncoder();
+  const bytes = Array.from(encoder.encode(code));
   const key = Math.floor(Math.random() * 255) + 1;
-  const encryptedBytes = bytes.map((b, i) => (b + (key + (i % 17))) % 256).join(',');
+  const rollingSeed = Math.floor(Math.random() * 50) + 10;
+  const encryptedBytes = bytes.map((b, i) => (b + (key + (i % rollingSeed))) % 256).join(',');
 
-  // 2. Generate the VM Loader
-  const vmName = randomName();
+  // 2. VM Internal Names
   const dataName = randomName();
   const keyName = randomName();
   const resultName = randomName();
   const charName = randomName();
   const loadName = randomName();
+  const byteVar = randomName();
+  const keyVar = randomName();
+  const vmFunc = randomName();
 
-  // Anti-tamper checks
-  const antiTamper = `
-    local function _check()
-      if debug and debug.getinfo then return true end
-      if getfenv and getfenv(0) ~= _G then return true end
-      return false
-    end
-    if _check() then 
-      -- Silence is golden
-      return 
-    end
-  `.trim();
-
-  // Junk code
-  const junk = Array.from({ length: 3 }, () => 
+  // 3. Dynamic Junk Generator
+  const getJunk = () => Array.from({ length: 2 }, () => 
     `local ${randomName()} = ${Math.floor(Math.random() * 1000000)} + ${Math.floor(Math.random() * 1000)};`
   ).join('\n');
 
+  // 4. Anti-Tamper
+  const antiTamper = `
+local function _0xVS_Check()
+    local _d = debug and debug.getinfo
+    local _f = getfenv and getfenv(0)
+    if _d or (_f and _f ~= _G) then return true end
+    return false
+end
+if _0xVS_Check() then return end
+`.trim();
+
   const loader = `
--- [[ VertexShield VM Protection v3.0 ]]
--- [[ Unauthorized access is strictly prohibited ]]
+-- [[ VertexShield VM Protection v3.1 ]]
+-- [[ https://vertexshield.io ]]
+
+${antiTamper}
+${getJunk()}
 
 local ${dataName} = {${encryptedBytes}}
 local ${keyName} = ${key}
-local ${resultName} = ""
+local ${resultName} = {}
 local ${charName} = string.char
 local ${loadName} = loadstring or load
 
-${junk}
+${getJunk()}
 
 for i = 1, #${dataName} do
-    local _b = ${dataName}[i]
-    local _k = (${keyName} + ((i-1) % 17)) % 256
-    ${resultName} = ${resultName} .. ${charName}((_b - _k + 256) % 256)
+    local ${byteVar} = ${dataName}[i]
+    local ${keyVar} = (${keyName} + ((i-1) % ${rollingSeed})) % 256
+    ${resultName}[i] = ${charName}((${byteVar} - ${keyVar} + 256) % 256)
 end
 
-${junk}
+${getJunk()}
 
-local ${vmName} = ${loadName}(${resultName})
-if ${vmName} then
-    ${vmName}()
+local ${vmFunc} = ${loadName}(table.concat(${resultName}))
+if ${vmFunc} then
+    ${vmFunc}()
 else
-    -- Error in VM execution
-    print("VertexShield: Critical VM Error 0x" .. string.format("%X", ${keyName}))
+    print("VertexShield: VM Error 0x" .. string.format("%X", ${keyName}))
 end
 
 -- [[ End of Protected Script ]]
@@ -80,11 +83,11 @@ end
 export function obfuscateCode(code: string, language: string = 'javascript'): string {
   if (!code || code.trim().length === 0) return "";
   
-  if (language === 'lua') {
-    return luaObfuscator(code);
-  }
-
   try {
+    if (language === 'lua') {
+      return luaObfuscator(code);
+    }
+
     const obfuscationResult = JavaScriptObfuscator.obfuscate(code, {
       compact: true,
       controlFlowFlattening: true,
@@ -98,7 +101,7 @@ export function obfuscateCode(code: string, language: string = 'javascript'): st
     });
     return obfuscationResult.getObfuscatedCode();
   } catch (error) {
-    // If it's not valid JS, we just return the original code
+    console.error("Obfuscation error:", error);
     return code;
   }
 }

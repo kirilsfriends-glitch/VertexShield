@@ -473,6 +473,9 @@ const ViewPaste = () => {
     const unsubscribe = onSnapshot(doc(db, "pastes", id), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+        if (!paste && data.obfuscatedContent) {
+          setViewMode("obfuscated");
+        }
         setPaste(data);
         
         // Check access
@@ -620,12 +623,12 @@ const ViewPaste = () => {
           </div>
           <div className="space-y-2">
             <h2 className="text-xl font-bold text-white">Script Ready</h2>
-            <p className="text-zinc-500 max-w-md">Use the loadstring below to execute this script in your executor. Source code is hidden for security.</p>
+            <p className="text-zinc-500 max-w-md">Use the loadstring below to execute this script in your executor.</p>
           </div>
           
           <div className="w-full max-w-2xl bg-black border border-zinc-800 rounded-xl p-4 relative group">
             <code className="text-sm text-primary font-mono break-all block pr-12 text-left">
-              loadstring(game:HttpGet("{window.location.origin}/script/{id}{paste.language === 'lua' ? '.lua' : ''}"))()
+              loadstring(game:HttpGet(`{window.location.origin}/script/{id}{paste.language === 'lua' ? '.lua' : ''}`))()
             </code>
             <button 
               onClick={handleCopyLoadstring}
@@ -653,6 +656,57 @@ const ViewPaste = () => {
               <span>Raw Script</span>
             </a>
           </div>
+        </div>
+
+        {/* Code View Section */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-bold text-white flex items-center gap-2">
+              <Code className="h-5 w-5 text-primary" />
+              <span>Source Preview</span>
+            </h3>
+          </div>
+
+          {!hasAccess && viewMode === "original" ? (
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-8 flex flex-col items-center text-center gap-4">
+              <Lock className="h-8 w-8 text-amber-500" />
+              <div className="space-y-1">
+                <p className="text-white font-medium">Original Source Protected</p>
+                <p className="text-sm text-zinc-500">You can only view the obfuscated version of this script.</p>
+              </div>
+              <button 
+                onClick={() => setViewMode("obfuscated")}
+                className="text-primary hover:underline text-sm font-bold"
+              >
+                Switch to Obfuscated View
+              </button>
+            </div>
+          ) : (
+            <div className="relative group rounded-2xl overflow-hidden border border-zinc-800">
+              <div className="absolute top-4 right-4 z-10 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button 
+                  onClick={handleCopy}
+                  className="p-2 bg-zinc-900/80 hover:bg-zinc-800 border border-zinc-700 rounded-lg text-zinc-400 hover:text-white transition-all backdrop-blur-sm"
+                >
+                  {copied ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}
+                </button>
+              </div>
+              <SyntaxHighlighter 
+                language={paste.language} 
+                style={vscDarkPlus}
+                customStyle={{
+                  margin: 0,
+                  padding: '2rem',
+                  fontSize: '0.875rem',
+                  backgroundColor: '#09090b',
+                  lineHeight: '1.5'
+                }}
+                showLineNumbers
+              >
+                {currentContent}
+              </SyntaxHighlighter>
+            </div>
+          )}
         </div>
 
         <div className="grid sm:grid-cols-3 gap-6">

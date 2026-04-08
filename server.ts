@@ -151,9 +151,13 @@ async function startServer() {
       return res.sendStatus(200);
     }
 
-    // If it's a browser (not Roblox), redirect to the beautiful UI
-    // Unless they explicitly asked for ?raw=true
-    if (!isRoblox && !req.query.raw) {
+    const accept = req.headers["accept"] || "";
+    const isBrowser = accept.includes("text/html");
+    const hasLuaExt = pasteIdWithExt.endsWith(".lua");
+
+    // If it has .lua extension OR is NOT a browser, serve raw
+    // If it's a browser and NOT explicitly asking for raw, redirect to UI
+    if (isBrowser && !req.query.raw && !hasLuaExt) {
       return res.redirect(`/paste/${pasteId}`);
     }
 
