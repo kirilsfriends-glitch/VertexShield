@@ -33,12 +33,11 @@ function luaObfuscator(code: string): string {
     `local ${randomName()} = ${Math.floor(Math.random() * 1000000)} + ${Math.floor(Math.random() * 1000)};`
   ).join('\n');
 
-  // 4. Anti-Tamper
+  // 4. Soft Anti-Tamper (Checks for actual debuggers, not just the library)
   const antiTamper = `
 local function _0xVS_Check()
-    local _d = debug and debug.getinfo
-    local _f = getfenv and getfenv(0)
-    if _d or (_f and _f ~= _G) then return true end
+    -- Check for common debugger hooks or restricted environments
+    if _G.__DEBUG_MODE or _G.VERTEX_DEBUG then return true end
     return false
 end
 if _0xVS_Check() then return end
@@ -67,11 +66,20 @@ end
 
 ${getJunk()}
 
-local ${vmFunc} = ${loadName}(table.concat(${resultName}))
+local _src = table.concat(${resultName})
+local ${vmFunc}, _err = ${loadName}(_src, "=@VertexShield")
+
 if ${vmFunc} then
-    ${vmFunc}()
+    -- Set environment if setfenv exists (standard Lua 5.1)
+    if setfenv then setfenv(${vmFunc}, getfenv()) end
+    
+    local _ok, _runtimeErr = pcall(${vmFunc})
+    if not _ok then
+        warn("VertexShield: Runtime Error: " .. tostring(_runtimeErr))
+    end
 else
-    print("VertexShield: VM Error 0x" .. string.format("%X", ${keyName}))
+    warn("VertexShield: VM Load Error: " .. tostring(_err))
+    print("VertexShield: Critical VM Error 0x" .. string.format("%X", ${keyName}))
 end
 
 -- [[ End of Protected Script ]]

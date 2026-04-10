@@ -628,7 +628,7 @@ const ViewPaste = () => {
           
           <div className="w-full max-w-2xl bg-black border border-zinc-800 rounded-xl p-4 relative group">
             <code className="text-sm text-primary font-mono break-all block pr-12 text-left">
-              loadstring(game:HttpGet(`{window.location.origin}/script/{id}{paste.language === 'lua' ? '.lua' : ''}`))()
+              loadstring(game:HttpGet(`${window.location.origin}/script/${id}${paste.language === 'lua' ? '.lua' : ''}`))()
             </code>
             <button 
               onClick={handleCopyLoadstring}
