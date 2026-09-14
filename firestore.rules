@@ -26,6 +26,7 @@ service cloud.firestore {
     //   - createdAt: timestamp (required)
     //   - isPublic: bool (required)
     //   - language: string (required, max 20 chars)
+    //   - protectionOptions: map (optional, Lua protector settings)
     //
     // ===============================================================
 
@@ -72,9 +73,28 @@ service cloud.firestore {
              (!('photoURL' in data) || isValidUrl(data.photoURL));
     }
 
+    function isValidProtectionOptions(opts) {
+      return opts is map &&
+             opts.keys().hasOnly(['level', 'antiDump', 'antiHook', 'envLogging', 'envLogConsole',
+                                  'webhookUrl', 'responseMode', 'watchdog', 'reentrancyGuard',
+                                  'flatten', 'scriptId']) &&
+             (!('level' in opts) || opts.level in ['standard', 'hardened', 'paranoid']) &&
+             (!('antiDump' in opts) || opts.antiDump is bool) &&
+             (!('antiHook' in opts) || opts.antiHook is bool) &&
+             (!('envLogging' in opts) || opts.envLogging is bool) &&
+             (!('envLogConsole' in opts) || opts.envLogConsole is bool) &&
+             (!('watchdog' in opts) || opts.watchdog is bool) &&
+             (!('reentrancyGuard' in opts) || opts.reentrancyGuard is bool) &&
+             (!('flatten' in opts) || opts.flatten is bool) &&
+             (!('responseMode' in opts) || opts.responseMode in ['silent', 'error', 'hang', 'corrupt', 'report']) &&
+             (!('scriptId' in opts) || (opts.scriptId is string && opts.scriptId.size() <= 64)) &&
+             (!('webhookUrl' in opts) || (opts.webhookUrl is string && opts.webhookUrl.size() <= 512 &&
+                                           (opts.webhookUrl == '' || isValidUrl(opts.webhookUrl))));
+    }
+
     function isValidPaste(data) {
       return hasRequiredFields(['title', 'content', 'obfuscatedContent', 'creatorId', 'creatorIp', 'creatorFingerprint', 'createdAt', 'isPublic', 'language']) &&
-             hasOnlyAllowedFields(['title', 'content', 'obfuscatedContent', 'creatorId', 'creatorIp', 'creatorFingerprint', 'createdAt', 'isPublic', 'language']) &&
+             hasOnlyAllowedFields(['title', 'content', 'obfuscatedContent', 'creatorId', 'creatorIp', 'creatorFingerprint', 'createdAt', 'isPublic', 'language', 'protectionOptions']) &&
              data.title is string && data.title.size() <= 100 &&
              data.content is string && data.content.size() <= 1048576 &&
              data.obfuscatedContent is string && data.obfuscatedContent.size() <= 1048576 &&
@@ -83,7 +103,9 @@ service cloud.firestore {
              data.creatorFingerprint is string && data.creatorFingerprint.size() <= 100 &&
              data.createdAt is timestamp &&
              data.isPublic is bool &&
-             data.language is string && data.language.size() <= 20;
+             data.language is string && data.language.size() <= 20 &&
+             (!('protectionOptions' in data) || data.protectionOptions == null ||
+              isValidProtectionOptions(data.protectionOptions));
     }
 
     // User profiles
