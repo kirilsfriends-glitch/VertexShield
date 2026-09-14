@@ -22,7 +22,12 @@ import {
   Zap,
   ExternalLink,
   ChevronRight,
-  FileText
+  FileText,
+  ShieldCheck,
+  Bug,
+  Radar,
+  Activity,
+  SlidersHorizontal
 } from "lucide-react";
 import { 
   auth, 
@@ -39,7 +44,7 @@ import {
   onSnapshot
 } from "./firebase";
 import { getDeviceFingerprint, getClientIp } from "./utils/fingerprint";
-import { obfuscateCode } from "./utils/obfuscator";
+import { obfuscateCode, type LuaProtectionOptions } from "./utils/obfuscator";
 import { PrismLight as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { lua, javascript, typescript, python, css, markup as html } from "react-syntax-highlighter/dist/esm/languages/prism";
@@ -228,12 +233,65 @@ const Navbar = () => {
   );
 };
 
+const DEFAULT_LUA_PROTECTION: LuaProtectionOptions = {
+  level: "hardened",
+  antiDump: true,
+  antiHook: true,
+  envLogging: false,
+  envLogConsole: false,
+  webhookUrl: "",
+  responseMode: "silent",
+  watchdog: false,
+};
+
+const ProtToggle = ({
+  checked,
+  onChange,
+  label,
+  hint,
+  icon,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label: string;
+  hint: string;
+  icon: React.ReactNode;
+}) => (
+  <label className="flex items-start gap-3 p-3 rounded-xl border border-zinc-800 bg-black/40 cursor-pointer group hover:border-zinc-700 transition-colors">
+    <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="hidden" />
+    <div
+      className={cn(
+        "mt-0.5 w-9 h-5 rounded-full transition-all relative shrink-0",
+        checked ? "bg-primary" : "bg-zinc-800",
+      )}
+    >
+      <div
+        className={cn(
+          "absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-all",
+          checked ? "translate-x-4" : "translate-x-0",
+        )}
+      />
+    </div>
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5 text-sm font-medium text-zinc-200">
+        {icon}
+        <span>{label}</span>
+      </div>
+      <p className="text-xs text-zinc-500 mt-0.5 leading-relaxed">{hint}</p>
+    </div>
+  </label>
+);
+
 const CreatePaste = () => {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [language, setLanguage] = useState("javascript");
   const [isPublic, setIsPublic] = useState(false);
   const [shouldObfuscate, setShouldObfuscate] = useState(true);
+  const [protection, setProtection] = useState<LuaProtectionOptions>(DEFAULT_LUA_PROTECTION);
+  const [showProtection, setShowProtection] = useState(false);
+  const setProt = <K extends keyof LuaProtectionOptions>(key: K, value: LuaProtectionOptions[K]) =>
+    setProtection((prev) => ({ ...prev, [key]: value }));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -274,7 +332,7 @@ const CreatePaste = () => {
     try {
       const ip = await getClientIp();
       const fingerprint = getDeviceFingerprint();
-      const obfuscated = (shouldObfuscate && (language === 'javascript' || language === 'typescript' || language === 'lua')) ? obfuscateCode(content, language) : content;
+      const obfuscated = (shouldObfuscate && (language === 'javascript' || language === 'typescript' || language === 'lua')) ? obfuscateCode(content, language, protection) : content;
 
       const docRef = await addDoc(collection(db, path), {
         title: title || "Untitled Paste",
@@ -285,7 +343,17 @@ const CreatePaste = () => {
         creatorFingerprint: fingerprint,
         createdAt: Timestamp.now(),
         isPublic,
-        language
+        language,
+        protectionOptions: language === 'lua' && shouldObfuscate ? {
+          level: protection.level ?? 'hardened',
+          antiDump: protection.antiDump !== false,
+          antiHook: protection.antiHook !== false,
+          envLogging: !!protection.envLogging,
+          envLogConsole: !!protection.envLogConsole,
+          webhookUrl: protection.webhookUrl || '',
+          responseMode: protection.responseMode ?? 'silent',
+          watchdog: !!protection.watchdog
+        } : null
       });
 
       toast.success("Paste created successfully!");
@@ -426,6 +494,119 @@ const CreatePaste = () => {
               )}
             </button>
           </div>
+
+          {language === 'lua' && shouldObfuscate && (
+            <div className="pt-4 border-t border-zinc-800 space-y-4">
+              <button
+                type="button"
+                onClick={() => setShowProtection((v) => !v)}
+                className="w-full flex items-center justify-between gap-3 text-left group"
+              >
+                <span className="flex items-center gap-2">
+                  <SlidersHorizontal className="h-4 w-4 text-primary" />
+                  <span className="text-sm font-semibold text-zinc-200">VertexShield Protection v4</span>
+                  <span className="text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                    {protection.level}
+                  </span>
+                </span>
+                <span className="text-xs text-zinc-500 group-hover:text-zinc-300 transition-colors">
+                  {showProtection ? "Hide" : "Tune"}
+                </span>
+              </button>
+
+              {showProtection && (
+                <div className="space-y-4">
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Protection level</label>
+                      <select
+                        value={protection.level}
+                        onChange={(e) => setProt("level", e.target.value as LuaProtectionOptions["level"])}
+                        className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all appearance-none"
+                      >
+                        <option value="standard">Standard — checksums, hooked primitive scan</option>
+                        <option value="hardened">Hardened — + trace hook, stack &amp; clock checks</option>
+                        <option value="paranoid">Paranoid — + dump/hook API &amp; env divergence scan</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">On detection</label>
+                      <select
+                        value={protection.responseMode}
+                        onChange={(e) => setProt("responseMode", e.target.value as LuaProtectionOptions["responseMode"])}
+                        className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all appearance-none"
+                      >
+                        <option value="silent">Silent — stop without running the payload</option>
+                        <option value="error">Decoy error — fail like a normal bug</option>
+                        <option value="corrupt">Corrupt — run a broken decoy chunk</option>
+                        <option value="hang">Hang — lock the thread</option>
+                        <option value="report">Report only — keep running, log the flags</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <ProtToggle
+                      checked={protection.antiDump !== false}
+                      onChange={(v) => setProt("antiDump", v)}
+                      label="Anti-dump"
+                      hint="Payload + plaintext checksums, debug hook detection, stack depth and clock sanity, loaded chunk identity check, source wiped right after load()."
+                      icon={<ShieldCheck className="h-3.5 w-3.5 text-primary" />}
+                    />
+                    <ProtToggle
+                      checked={protection.antiHook !== false}
+                      onChange={(v) => setProt("antiHook", v)}
+                      label="Anti-hook"
+                      hint="Verifies the primitives the loader needs are still native closures, so string.char / loadstring interception is caught before anything is decrypted."
+                      icon={<Bug className="h-3.5 w-3.5 text-primary" />}
+                    />
+                    <ProtToggle
+                      checked={!!protection.watchdog}
+                      onChange={(v) => setProt("watchdog", v)}
+                      label="Runtime watchdog"
+                      hint="Re-verifies the environment on a task.spawn loop so hooks installed after startup are caught too."
+                      icon={<Radar className="h-3.5 w-3.5 text-primary" />}
+                    />
+                    <ProtToggle
+                      checked={!!protection.envLogging}
+                      onChange={(v) => setProt("envLogging", v)}
+                      label="Environment logging"
+                      hint="Snapshots the runtime (executor name, API surface, place/job id, triggered flags) and reports it. Technical data only — no personal data."
+                      icon={<Activity className="h-3.5 w-3.5 text-primary" />}
+                    />
+                  </div>
+
+                  {protection.envLogging && (
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <div className="space-y-2">
+                        <label className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Report webhook (optional)</label>
+                        <input
+                          type="url"
+                          value={protection.webhookUrl || ""}
+                          onChange={(e) => setProt("webhookUrl", e.target.value)}
+                          placeholder="https://your-endpoint/hook"
+                          className="w-full bg-black border border-zinc-800 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
+                        />
+                      </div>
+                      <ProtToggle
+                        checked={!!protection.envLogConsole}
+                        onChange={(v) => setProt("envLogConsole", v)}
+                        label="Echo to executor console"
+                        hint="Prints a one line summary locally so you can verify protection is live while testing."
+                        icon={<Activity className="h-3.5 w-3.5 text-primary" />}
+                      />
+                    </div>
+                  )}
+
+                  <p className="text-xs text-zinc-600 leading-relaxed">
+                    Paranoid mode scans for decompiler and hook-framework globals. Most Roblox executors expose those
+                    APIs to every script, so treat a trip there as suspicious rather than malicious. Start on Hardened
+                    and raise it once you know your audience.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="grid sm:grid-cols-3 gap-6">
@@ -589,6 +770,15 @@ const ViewPaste = () => {
                 </span>
                 <span className="h-1 w-1 bg-zinc-700 rounded-full" />
                 <span className="uppercase tracking-wider text-xs">{paste.language}</span>
+                {paste.protectionOptions?.level && (
+                  <>
+                    <span className="h-1 w-1 bg-zinc-700 rounded-full" />
+                    <span className="flex items-center gap-1 uppercase tracking-wider text-xs text-primary">
+                      <ShieldCheck className="h-3 w-3" />
+                      {paste.protectionOptions.level} protection
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
