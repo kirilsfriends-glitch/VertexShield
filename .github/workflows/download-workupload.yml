@@ -1,0 +1,96 @@
+name: Download Workupload File
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Download and verify neverwork.dll
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FILE_ID="eazJAJgVwmh"
+          FILE_NAME="neverwork.dll"
+          EXPECTED_SIZE="35810816"
+          EXPECTED_SHA256="57f632b9430e5ccd574de3381f670d30f99af2d68f119330e3a3c11d417754d0"
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
+          COOKIE_JAR="$(mktemp)"
+          trap 'rm -f "$COOKIE_JAR" /tmp/workupload_page.html /tmp/workupload_start.bin /tmp/workupload_api.json' EXIT
+
+          echo "Opening Workupload file page to establish a session..."
+          curl -sS -L --retry 5 --retry-delay 2 \
+            -A "$UA" \
+            -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+            "https://workupload.com/file/${FILE_ID}" \
+            -o /tmp/workupload_page.html
+
+          echo "Calling start endpoint..."
+          curl -sS --retry 5 --retry-delay 2 \
+            -A "$UA" \
+            -e "https://workupload.com/file/${FILE_ID}" \
+            -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+            "https://workupload.com/start/${FILE_ID}" \
+            -o /tmp/workupload_start.bin || true
+
+          echo "Resolving download server..."
+          curl -sS -L --retry 5 --retry-delay 2 \
+            -A "$UA" \
+            -e "https://workupload.com/file/${FILE_ID}" \
+            -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+            "https://workupload.com/api/file/getDownloadServer/${FILE_ID}" \
+            -o /tmp/workupload_api.json
+
+          DOWNLOAD_URL="$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('/tmp/workupload_api.json').read_text())
+          if not data.get('success'):
+              raise SystemExit(f"Workupload API failed: {data}")
+          print(data['data']['url'].replace('\\/', '/'))
+          PY
+          )"
+          echo "Download URL resolved."
+
+          echo "Downloading ${FILE_NAME}..."
+          rm -f "$FILE_NAME"
+          curl -sS -L --fail --retry 5 --retry-delay 3 \
+            -A "$UA" \
+            -e "https://workupload.com/file/${FILE_ID}" \
+            -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+            "$DOWNLOAD_URL" \
+            -o "$FILE_NAME"
+
+          ACTUAL_SIZE="$(wc -c < "$FILE_NAME" | tr -d ' ')"
+          ACTUAL_SHA256="$(sha256sum "$FILE_NAME" | awk '{print $1}')"
+          echo "Downloaded size: ${ACTUAL_SIZE}"
+          echo "Downloaded sha256: ${ACTUAL_SHA256}"
+
+          test "$ACTUAL_SIZE" = "$EXPECTED_SIZE"
+          test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
+
+      - name: Commit downloaded file
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add neverwork.dll
+          if git diff --cached --quiet; then
+            echo "neverwork.dll is already committed."
+          else
+            git commit -m "Add neverwork.dll from Workupload"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
