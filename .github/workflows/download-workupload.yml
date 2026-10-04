@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+  issues: write
 
 jobs:
   download:
@@ -19,6 +21,8 @@ jobs:
 
       - name: Download, verify, and commit file
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -u
 
@@ -39,7 +43,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           COOKIE_JAR="$(mktemp)"
-          trap 'rm -f "$COOKIE_JAR" /tmp/workupload_page.html /tmp/workupload_start.bin /tmp/workupload_api.json /tmp/workupload_download_headers.txt' EXIT
+          trap 'rm -f "$COOKIE_JAR" /tmp/workupload_page.html /tmp/workupload_start.bin /tmp/workupload_api.json /tmp/workupload_download_headers.txt /tmp/workupload_comment.md' EXIT
 
           result=0
           (
@@ -51,6 +55,7 @@ jobs:
               -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
               "https://workupload.com/file/${FILE_ID}" \
               -o /tmp/workupload_page.html
+            echo "Page preview:"
             head -c 300 /tmp/workupload_page.html || true
             echo
 
@@ -69,6 +74,7 @@ jobs:
               -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
               "https://workupload.com/api/file/getDownloadServer/${FILE_ID}" \
               -o /tmp/workupload_api.json
+            echo "API response:"
             cat /tmp/workupload_api.json
             echo
 
@@ -92,6 +98,7 @@ jobs:
               -D /tmp/workupload_download_headers.txt \
               "$DOWNLOAD_URL" \
               -o "$FILE_NAME"
+            echo "Download response headers:"
             cat /tmp/workupload_download_headers.txt
 
             ACTUAL_SIZE="$(wc -c < "$FILE_NAME" | tr -d ' ')"
@@ -106,20 +113,29 @@ jobs:
           set +e
           if [ "$result" -eq 0 ]; then
             echo "Download succeeded; committing ${FILE_NAME}."
-            rm -f "$DEBUG_LOG"
             git add "$FILE_NAME"
-            COMMIT_MESSAGE="Add neverwork.dll from Workupload [skip ci]"
+            if git diff --cached --quiet; then
+              echo "No file changes to commit."
+            else
+              git commit -m "Add neverwork.dll from Workupload [skip ci]"
+              git push origin "HEAD:${BRANCH_NAME}"
+            fi
           else
-            echo "Download failed with exit code ${result}; committing debug log."
-            git add "$DEBUG_LOG"
-            COMMIT_MESSAGE="Add Workupload download debug log [skip ci]"
-          fi
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-          else
-            git commit -m "$COMMIT_MESSAGE"
-            git push origin "HEAD:${BRANCH_NAME}"
+            echo "Download failed with exit code ${result}; posting debug log to PR."
+            PR_NUMBER="$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null)"
+            if [ -n "$PR_NUMBER" ]; then
+              {
+                echo "Workupload download failed with exit code ${result}. Debug log tail:";
+                echo;
+                echo '```';
+                tail -c 50000 "$DEBUG_LOG";
+                echo;
+                echo '```';
+              } > /tmp/workupload_comment.md
+              gh pr comment "$PR_NUMBER" --body-file /tmp/workupload_comment.md || true
+            else
+              echo "No PR number found; skipping comment."
+            fi
           fi
 
           exit "$result"
