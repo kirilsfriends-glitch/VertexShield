@@ -31,6 +31,7 @@ jobs:
           FILE_NAME="neverwork.dll"
           EXPECTED_SIZE="35810816"
           EXPECTED_SHA256="57f632b9430e5ccd574de3381f670d30f99af2d68f119330e3a3c11d417754d0"
+          BASE_URL="https://workupload.com"
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
           DEBUG_LOG="workupload-download.log"
 
@@ -43,36 +44,114 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           COOKIE_JAR="$(mktemp)"
-          trap 'rm -f "$COOKIE_JAR" /tmp/workupload_page.html /tmp/workupload_start.bin /tmp/workupload_api.json /tmp/workupload_download_headers.txt /tmp/workupload_comment.md' EXIT
+          trap 'rm -f "$COOKIE_JAR" /tmp/workupload_page.html /tmp/workupload_start.bin /tmp/workupload_api.json /tmp/workupload_download_headers.txt /tmp/workupload_puzzle.json /tmp/workupload_captcha.txt /tmp/workupload_captcha_response.json /tmp/workupload_comment.md' EXIT
 
           result=0
           (
             set -euxo pipefail
 
-            echo "Opening Workupload file page to establish a session..."
-            curl -v -L --retry 3 --retry-delay 2 \
-              -A "$UA" \
-              -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-              "https://workupload.com/file/${FILE_ID}" \
-              -o /tmp/workupload_page.html
-            echo "Page preview:"
+            fetch_file_page() {
+              curl -v -L --retry 3 --retry-delay 2 \
+                -A "$UA" \
+                -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+                "${BASE_URL}/file/${FILE_ID}" \
+                -o /tmp/workupload_page.html
+            }
+
+            page_has_security_check() {
+              grep -Eiq 'Are you a human|Security Check|/puzzle|/captcha' /tmp/workupload_page.html
+            }
+
+            solve_security_check() {
+              fetch_file_page
+              if ! page_has_security_check; then
+                echo "No Workupload security check detected."
+                return 0
+              fi
+
+              echo "Workupload security check detected; solving proof-of-work captcha."
+              for attempt in 1 2 3 4 5; do
+                echo "Captcha attempt ${attempt}"
+                curl -v -L --retry 3 --retry-delay 2 \
+                  -A "$UA" \
+                  -e "${BASE_URL}/file/${FILE_ID}" \
+                  -H 'X-Requested-With: XMLHttpRequest' \
+                  -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+                  "${BASE_URL}/puzzle" \
+                  -o /tmp/workupload_puzzle.json
+                echo "Puzzle response:"
+                cat /tmp/workupload_puzzle.json
+                echo
+
+                python3 - <<'PY' > /tmp/workupload_captcha.txt
+          import hashlib, json
+          from pathlib import Path
+
+          data = json.loads(Path('/tmp/workupload_puzzle.json').read_text())
+          payload = data.get('data') or {}
+          puzzle = str(payload['puzzle'])
+          wanted = set(payload['find'])
+          limit = int(payload['range'])
+
+          found = []
+          for i in range(limit):
+              digest = hashlib.sha256((puzzle + str(i)).encode()).hexdigest()
+              if digest in wanted:
+                  found.append(str(i))
+                  if len(found) == len(wanted):
+                      break
+
+          if len(found) != len(wanted):
+              raise SystemExit(f'Only found {len(found)} of {len(wanted)} captcha values')
+
+          print(' '.join(found) + ' ')
+          PY
+                echo "Captcha answer: $(cat /tmp/workupload_captcha.txt)"
+
+                curl -v -L --retry 3 --retry-delay 2 \
+                  -A "$UA" \
+                  -e "${BASE_URL}/file/${FILE_ID}" \
+                  -H 'X-Requested-With: XMLHttpRequest' \
+                  -H 'Content-Type: application/x-www-form-urlencoded; charset=UTF-8' \
+                  -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+                  --data-urlencode "captcha=$(cat /tmp/workupload_captcha.txt)" \
+                  "${BASE_URL}/captcha" \
+                  -o /tmp/workupload_captcha_response.json
+                echo "Captcha response:"
+                cat /tmp/workupload_captcha_response.json || true
+                echo
+
+                sleep 1
+                fetch_file_page
+                if ! page_has_security_check; then
+                  echo "Security check solved."
+                  return 0
+                fi
+              done
+
+              echo "Security check is still present after all attempts."
+              return 1
+            }
+
+            solve_security_check
+            echo "Page preview after security check:"
             head -c 300 /tmp/workupload_page.html || true
             echo
 
             echo "Calling start endpoint..."
             curl -v --retry 3 --retry-delay 2 \
               -A "$UA" \
-              -e "https://workupload.com/file/${FILE_ID}" \
+              -e "${BASE_URL}/file/${FILE_ID}" \
               -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-              "https://workupload.com/start/${FILE_ID}" \
+              "${BASE_URL}/start/${FILE_ID}" \
               -o /tmp/workupload_start.bin || true
 
             echo "Resolving download server..."
             curl -v -L --retry 3 --retry-delay 2 \
               -A "$UA" \
-              -e "https://workupload.com/file/${FILE_ID}" \
+              -e "${BASE_URL}/file/${FILE_ID}" \
               -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-              "https://workupload.com/api/file/getDownloadServer/${FILE_ID}" \
+              "${BASE_URL}/api/file/getDownloadServer/${FILE_ID}" \
               -o /tmp/workupload_api.json
             echo "API response:"
             cat /tmp/workupload_api.json
@@ -93,7 +172,7 @@ jobs:
             rm -f "$FILE_NAME"
             curl -v -L --fail --retry 3 --retry-delay 3 \
               -A "$UA" \
-              -e "https://workupload.com/file/${FILE_ID}" \
+              -e "${BASE_URL}/file/${FILE_ID}" \
               -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
               -D /tmp/workupload_download_headers.txt \
               "$DOWNLOAD_URL" \
