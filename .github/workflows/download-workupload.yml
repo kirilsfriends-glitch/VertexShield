@@ -17,44 +17,62 @@ jobs:
           ref: ${{ github.head_ref || github.ref_name }}
           fetch-depth: 0
 
-      - name: Download and verify neverwork.dll
+      - name: Download, verify, and commit file
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
 
+          BRANCH_NAME="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME}}"
           FILE_ID="eazJAJgVwmh"
           FILE_NAME="neverwork.dll"
           EXPECTED_SIZE="35810816"
           EXPECTED_SHA256="57f632b9430e5ccd574de3381f670d30f99af2d68f119330e3a3c11d417754d0"
           UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+          DEBUG_LOG="workupload-download.log"
+
+          exec > >(tee "$DEBUG_LOG") 2>&1
+          echo "Branch: ${BRANCH_NAME}"
+          echo "GitHub ref: ${GITHUB_REF_NAME}"
+          echo "Date: $(date -u --iso-8601=seconds)"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           COOKIE_JAR="$(mktemp)"
-          trap 'rm -f "$COOKIE_JAR" /tmp/workupload_page.html /tmp/workupload_start.bin /tmp/workupload_api.json' EXIT
+          trap 'rm -f "$COOKIE_JAR" /tmp/workupload_page.html /tmp/workupload_start.bin /tmp/workupload_api.json /tmp/workupload_download_headers.txt' EXIT
 
-          echo "Opening Workupload file page to establish a session..."
-          curl -sS -L --retry 5 --retry-delay 2 \
-            -A "$UA" \
-            -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-            "https://workupload.com/file/${FILE_ID}" \
-            -o /tmp/workupload_page.html
+          result=0
+          (
+            set -euxo pipefail
 
-          echo "Calling start endpoint..."
-          curl -sS --retry 5 --retry-delay 2 \
-            -A "$UA" \
-            -e "https://workupload.com/file/${FILE_ID}" \
-            -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-            "https://workupload.com/start/${FILE_ID}" \
-            -o /tmp/workupload_start.bin || true
+            echo "Opening Workupload file page to establish a session..."
+            curl -v -L --retry 3 --retry-delay 2 \
+              -A "$UA" \
+              -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+              "https://workupload.com/file/${FILE_ID}" \
+              -o /tmp/workupload_page.html
+            head -c 300 /tmp/workupload_page.html || true
+            echo
 
-          echo "Resolving download server..."
-          curl -sS -L --retry 5 --retry-delay 2 \
-            -A "$UA" \
-            -e "https://workupload.com/file/${FILE_ID}" \
-            -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-            "https://workupload.com/api/file/getDownloadServer/${FILE_ID}" \
-            -o /tmp/workupload_api.json
+            echo "Calling start endpoint..."
+            curl -v --retry 3 --retry-delay 2 \
+              -A "$UA" \
+              -e "https://workupload.com/file/${FILE_ID}" \
+              -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+              "https://workupload.com/start/${FILE_ID}" \
+              -o /tmp/workupload_start.bin || true
 
-          DOWNLOAD_URL="$(python3 - <<'PY'
+            echo "Resolving download server..."
+            curl -v -L --retry 3 --retry-delay 2 \
+              -A "$UA" \
+              -e "https://workupload.com/file/${FILE_ID}" \
+              -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+              "https://workupload.com/api/file/getDownloadServer/${FILE_ID}" \
+              -o /tmp/workupload_api.json
+            cat /tmp/workupload_api.json
+            echo
+
+            DOWNLOAD_URL="$(python3 - <<'PY'
           import json
           from pathlib import Path
           data = json.loads(Path('/tmp/workupload_api.json').read_text())
@@ -62,36 +80,46 @@ jobs:
               raise SystemExit(f"Workupload API failed: {data}")
           print(data['data']['url'].replace('\\/', '/'))
           PY
-          )"
-          echo "Download URL resolved."
+            )"
+            echo "Download URL: ${DOWNLOAD_URL}"
 
-          echo "Downloading ${FILE_NAME}..."
-          rm -f "$FILE_NAME"
-          curl -sS -L --fail --retry 5 --retry-delay 3 \
-            -A "$UA" \
-            -e "https://workupload.com/file/${FILE_ID}" \
-            -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
-            "$DOWNLOAD_URL" \
-            -o "$FILE_NAME"
+            echo "Downloading ${FILE_NAME}..."
+            rm -f "$FILE_NAME"
+            curl -v -L --fail --retry 3 --retry-delay 3 \
+              -A "$UA" \
+              -e "https://workupload.com/file/${FILE_ID}" \
+              -c "$COOKIE_JAR" -b "$COOKIE_JAR" \
+              -D /tmp/workupload_download_headers.txt \
+              "$DOWNLOAD_URL" \
+              -o "$FILE_NAME"
+            cat /tmp/workupload_download_headers.txt
 
-          ACTUAL_SIZE="$(wc -c < "$FILE_NAME" | tr -d ' ')"
-          ACTUAL_SHA256="$(sha256sum "$FILE_NAME" | awk '{print $1}')"
-          echo "Downloaded size: ${ACTUAL_SIZE}"
-          echo "Downloaded sha256: ${ACTUAL_SHA256}"
+            ACTUAL_SIZE="$(wc -c < "$FILE_NAME" | tr -d ' ')"
+            ACTUAL_SHA256="$(sha256sum "$FILE_NAME" | awk '{print $1}')"
+            echo "Downloaded size: ${ACTUAL_SIZE}"
+            echo "Downloaded sha256: ${ACTUAL_SHA256}"
 
-          test "$ACTUAL_SIZE" = "$EXPECTED_SIZE"
-          test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
+            test "$ACTUAL_SIZE" = "$EXPECTED_SIZE"
+            test "$ACTUAL_SHA256" = "$EXPECTED_SHA256"
+          ) || result=$?
 
-      - name: Commit downloaded file
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add neverwork.dll
-          if git diff --cached --quiet; then
-            echo "neverwork.dll is already committed."
+          set +e
+          if [ "$result" -eq 0 ]; then
+            echo "Download succeeded; committing ${FILE_NAME}."
+            rm -f "$DEBUG_LOG"
+            git add "$FILE_NAME"
+            COMMIT_MESSAGE="Add neverwork.dll from Workupload [skip ci]"
           else
-            git commit -m "Add neverwork.dll from Workupload"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            echo "Download failed with exit code ${result}; committing debug log."
+            git add "$DEBUG_LOG"
+            COMMIT_MESSAGE="Add Workupload download debug log [skip ci]"
           fi
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "$COMMIT_MESSAGE"
+            git push origin "HEAD:${BRANCH_NAME}"
+          fi
+
+          exit "$result"
