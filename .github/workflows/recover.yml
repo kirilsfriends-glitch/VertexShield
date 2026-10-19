@@ -1,0 +1,23 @@
+name: recover-site-files
+on:
+  workflow_dispatch:
+  push:
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download live site files
+        run: |
+          mkdir -p out
+          curl -fsSL -D out/main_script.js.headers https://luagenerator.vercel.app/main_script.js -o out/main_script.js
+          curl -fsSL -D out/main_style.css.headers https://luagenerator.vercel.app/main_style.css -o out/main_style.css
+          curl -fsSL -D out/index.html.headers https://luagenerator.vercel.app/ -o out/index.html
+          curl -fsSL -D out/main.headers https://luagenerator.vercel.app/main -o out/main.html
+          curl -sS -D out/request.php.headers https://luagenerator.vercel.app/api/request.php -o out/request.php.get.txt || true
+          curl -sS -X POST -H 'Content-Type: application/json' -d '{"prompt":"test","action":"Generate new script","currentCode":""}' -D out/request.php.post.headers https://luagenerator.vercel.app/api/request.php -o out/request.php.post.txt || true
+          wc -c out/* | tee out/sizes.txt
+          sha256sum out/main_script.js out/main_style.css out/index.html | tee out/checksums.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: recovered
+          path: out/
