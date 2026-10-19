@@ -2,22 +2,32 @@ name: recover-site-files
 on:
   workflow_dispatch:
   push:
+permissions:
+  contents: write
 jobs:
   fetch:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
       - name: Download live site files
         run: |
-          mkdir -p out
-          curl -fsSL -D out/main_script.js.headers https://luagenerator.vercel.app/main_script.js -o out/main_script.js
-          curl -fsSL -D out/main_style.css.headers https://luagenerator.vercel.app/main_style.css -o out/main_style.css
-          curl -fsSL -D out/index.html.headers https://luagenerator.vercel.app/ -o out/index.html
-          curl -fsSL -D out/main.headers https://luagenerator.vercel.app/main -o out/main.html
-          curl -sS -D out/request.php.headers https://luagenerator.vercel.app/api/request.php -o out/request.php.get.txt || true
-          curl -sS -X POST -H 'Content-Type: application/json' -d '{"prompt":"test","action":"Generate new script","currentCode":""}' -D out/request.php.post.headers https://luagenerator.vercel.app/api/request.php -o out/request.php.post.txt || true
-          wc -c out/* | tee out/sizes.txt
-          sha256sum out/main_script.js out/main_style.css out/index.html | tee out/checksums.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: recovered
-          path: out/
+          mkdir -p recovered
+          curl -fsSL https://luagenerator.vercel.app/main_script.js -o recovered/main_script.js
+          curl -fsSL https://luagenerator.vercel.app/main_style.css -o recovered/main_style.css
+          curl -fsSL https://luagenerator.vercel.app/ -o recovered/index.html
+          curl -sS https://luagenerator.vercel.app/api/request.php -o recovered/api_request_get.txt || true
+          curl -sS -X POST -H 'Content-Type: application/json' -d '{"prompt":"ping","action":"Generate new script","currentCode":""}' https://luagenerator.vercel.app/api/request.php -o recovered/api_request_post.txt || true
+          wc -c recovered/* > recovered/sizes.txt
+          sha256sum recovered/main_script.js recovered/main_style.css recovered/index.html > recovered/checksums.txt
+          head -c 300 recovered/api_request_get.txt || true
+          echo
+          head -c 300 recovered/api_request_post.txt || true
+      - name: Commit recovered files
+        run: |
+          git config user.name "recovery-bot"
+          git config user.email "recovery@local"
+          git add recovered
+          git commit -m "recovered live site bytes [skip ci]" || echo "nothing to commit"
+          git push
