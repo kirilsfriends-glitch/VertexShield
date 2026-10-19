@@ -1,20 +1,73 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Lua Code Generator — восстановленный исходник
 
-# Run and deploy your AI Studio app
+Это исходники сайта **https://luagenerator.vercel.app/** («Lua Code Generator» / «Lua Studio»),
+восстановленные с боевого сервера **19.10.2026** — все три файла являются **точными копиями (байт-в-байт)** того, что отдаёт сейчас сайт.
 
-This contains everything you need to run your app locally.
+## Структура
 
-View your app in AI Studio: https://ai.studio/apps/a2aa08f8-9420-4912-a9f4-a96496b1ee9a
+| Файл | Что это | SHA-256 |
+| --- | --- | --- |
+| `index.html` | Разметка (126 строк): сайдбар «Lua Studio», выбор модели (Noob Generator / Pro Generator), действие (Generate new script / Modify current script), промпт до 800 символов, панель Monaco-редактора | `c3872a95…ef7704` |
+| `main_style.css` | Стили (698 строк), тёмная и светлая тема | `1bff32f7…2bc99c` |
+| `main_script.js` | Вся логика (1092 строки): Monaco + подсветка Lua/Luau и умное автодополнение (Roblox API, функции из текущего файла, функции эксплоитов), генерация кода через API, копирование/скачивание `.lua`, кулдаун 8 сек | `be8961b2…a1f541` |
 
-## Run Locally
+Файлы используют **CRLF**-переносы строк и отступ в 4 пробела — как в оригинале.
 
-**Prerequisites:**  Node.js
+## Внешние зависимости (CDN, нужны при открытии сайта)
 
+- `https://unpkg.com/lucide@latest` — SVG-иконки
+- Google Fonts: Plus Jakarta Sans + JetBrains Mono
+- Monaco Editor `0.52.2` с `cdn.jsdelivr.net`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## ⚠️ Чего восстановить не удалось
+
+**Серверная часть** — Vercel-функция `/api/request` (фронтенд вызывает `/api/request.php`,
+который на боевом сайте редиректится на `/api/request`; см. `callGeminiAPI()` в `main_script.js`).
+Исходники функций Vercel не отдаёт — с боевого сервера получить их невозможно, они существовали только в утерянном GitHub-репозитории.
+
+Контракт по фронтенду:
+- `POST /api/request.php`, тело: `{ "prompt": "...", "action": "Generate new script" | "Modify current script", "currentCode": "..." }`
+- ответ: `text/plain` — готовый Lua-код (фронтенд срезает возможные ```lua-заборы)
+
+Чтобы сайт снова заработал целиком, создана **заглушка `api/request.js`** (это НЕ оригинальный код — файл помечен в шапке):
+- без ключа возвращает условный Lua-скрипт (фронтенд работает);
+- если задать `GEMINI_API_KEY` (и опционально `GEMINI_MODEL`) — реально генерирует код через Gemini.
+
+`vercel.json` повторяет наблюдаемое на боевом сайте поведение: редирект `/api/request.php` → `/api/request`.
+
+Модель «Noob Generator / Pro Generator» в интерфейсе — пока только UI: выбор модели **не отправляется** на API.
+
+## Про «картинку»
+
+В коде сайта **нет изображений** — проверено по точным байтам всех трёх файлов:
+нет `<img>`, нет base64, нет `url(...)` в CSS, `favicon.ico` на сайте отсутствует (404),
+`logo.svg` / `icon.png` / `image.png` — тоже 404. Иконки — SVG из lucide, генерируемые из CDN в рантайме.
+Похоже, картинку в код этого сайта не добавляли (либо её стоит искать в другом проекте).
+
+## Запуск
+
+Локально (интерфейс без генерации):
+```bash
+npx serve .
+# или
+python3 -m http.server 8000
+```
+
+Деплой на Vercel:
+1. залить репозиторий в Vercel (static, без сборки);
+2. в настройках проекта задать `GEMINI_API_KEY` — тогда заработает генерация.
+
+## Как это восстанавливалось
+
+Точные байты были получены через GitHub Actions: временный workflow (см. историю ветки) скачал
+файлы с боевого сайта из облака GitHub и закоммитил их в ветку; после чего содержимое было
+разложено по корню репозитория. Промежуточные файлы (`recovered/`, `.github/workflows/`)
+из итогового дерева удалены, но остались в истории Git.
+
+## Если нужно вернуть старое содержимое репозитория (VertexShield)
+
+Файлы старого проекта удалены из рабочей папки по запросу, но **сохранены в истории Git**:
+```bash
+git show 72150bc            # посмотреть
+git checkout 72150bc -- .   # восстановить
+```
